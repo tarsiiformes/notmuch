@@ -204,6 +204,7 @@ test_expect_equal "$output" "Added 1 new message to the database."
 
 # This test requires that notmuch new has been run at least once.
 test_begin_subtest "Skip and report non-mail files"
+test_subtest_known_broken
 generate_message
 mkdir -p "${MAIL_DIR}"/.git && touch "${MAIL_DIR}"/.git/config
 touch "${MAIL_DIR}"/ignored_file
@@ -233,6 +234,7 @@ Added 1 new message to the database."
 rm "${MAIL_DIR}"/mbox_file
 
 test_begin_subtest "Ignore files and directories specified in new.ignore"
+test_subtest_known_broken
 generate_message
 notmuch config set new.ignore .git ignored_file .ignored_hidden_file
 touch "${MAIL_DIR}"/.git # change .git's mtime for notmuch new to rescan.

@@ -120,22 +120,6 @@ _notmuch_message_file_close (notmuch_message_file_t *message)
     talloc_free (message);
 }
 
-static bool
-_is_mbox (GMimeStream *stream)
-{
-    char from_buf[5];
-    bool ret = false;
-
-    /* Is this mbox? */
-    if (g_mime_stream_read (stream, from_buf, sizeof (from_buf)) == sizeof (from_buf) &&
-	strncmp (from_buf, "From ", 5) == 0)
-	ret = true;
-
-    g_mime_stream_reset (stream);
-
-    return ret;
-}
-
 notmuch_status_t
 _notmuch_message_file_parse (notmuch_message_file_t *message)
 {
@@ -146,7 +130,9 @@ _notmuch_message_file_parse (notmuch_message_file_t *message)
     if (message->message)
 	return NOTMUCH_STATUS_SUCCESS;
 
-    is_mbox = _is_mbox (message->stream);
+    // See https://notmuchmail.org/pipermail/notmuch/2019/028398.html
+    // is_mbox = _is_mbox (message->stream);
+    is_mbox = false;
 
     _notmuch_init ();
 
