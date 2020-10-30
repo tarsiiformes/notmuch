@@ -78,6 +78,10 @@ endif
 
 check: test
 
+compile-elisp-tests:
+	$(EMACS) --batch -L emacs -L test -l notmuch.el -l test-lib.el -f \
+	batch-byte-compile test/*.el
+
 SRCS := $(SRCS) $(test_srcs)
 CLEAN += $(TEST_BINARIES) $(addsuffix .o,$(TEST_BINARIES)) \
 	 $(dir)/database-test.o \

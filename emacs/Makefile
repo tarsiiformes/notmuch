@@ -5,3 +5,12 @@ all:
 
 .DEFAULT:
 	$(MAKE) -C .. $@
+
+lisp:
+	$(MAKE) -C .. lisp
+
+compile-elisp-tests:
+	$(MAKE) -C ../test compile-elisp-tests
+
+clean:
+	$(MAKE) -C .. clean-lisp

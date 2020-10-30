@@ -1,6 +1,7 @@
 # -*- makefile-gmake -*-
 
 dir := emacs
+emacs_dir = emacs
 emacs_sources := \
 	$(dir)/notmuch-lib.el \
 	$(dir)/notmuch-compat.el \
@@ -131,3 +132,19 @@ endif
 
 CLEAN := $(CLEAN) $(emacs_bytecode) $(dir)/notmuch-version.el $(dir)/notmuch-pkg.el \
 	$(emacs_docstrings) docstring.stamp
+
+# FIXME Somehow the value of $(dir) is not correct when I try to use it.
+# FIXME Somehow these targets have to be invoked seperately, when in topdir.
+#   works: cd notmuch/emacs; make clean lisp
+#     not: cd notmuch; make clean-lisp lisp
+#     use: cd notmuch; make clean-lisp; make lisp
+
+lisp: $(emacs_dir)/notmuch-version.el $(emacs_dir)/notmuch-pkg.el $(emacs_bytecode)
+
+clean-lisp:
+	rm -f $(emacs_dir)/.eldeps $(emacs_dir)/.eldeps.tmp $(emacs_dir)/.eldeps.x
+	rm -f $(emacs_dir)/notmuch-version.el $(emacs_dir)/notmuch-pkg.el
+	rm -f $(emacs_bytecode) $(emacs_docstrings)
+
+clean-crap:
+	rm -f $(emacs_docstrings)
