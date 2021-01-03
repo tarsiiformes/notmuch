@@ -25,7 +25,10 @@
 (require 'pcase)
 (require 'subr-x)
 
-(defun notmuch-sexp-create-parser ()
+(defclass notmuch-sexp-parser ()
+  ((depth :initform 0)    ; List depth
+   (pos   :initform nil)  ; Partial parse position marker
+   (state :initform nil)) ; Partial parse state
   "Return a new streaming S-expression parser.
 
 This parser is designed to incrementally read an S-expression
@@ -35,97 +38,91 @@ complete S-expression from the input.  However, it extends this
 with an additional function that requires the next value in the
 input to be a list and descends into it, allowing its elements to
 be read one at a time or further descended into.  Both functions
-can return 'retry to indicate that not enough input is available.
+can return `retry' to indicate that not enough input is available.
 
 The parser always consumes input from point in the current
 buffer.  Hence, the caller is allowed to delete any data before
-point and may resynchronize after an error by moving point."
-  (vector 'notmuch-sexp-parser
-	  0     ; List depth
-	  nil   ; Partial parse position marker
-	  nil)) ; Partial parse state
+point and may resynchronize after an error by moving point.")
 
-(defmacro notmuch-sexp--depth (sp)         `(aref ,sp 1))
-(defmacro notmuch-sexp--partial-pos (sp)   `(aref ,sp 2))
-(defmacro notmuch-sexp--partial-state (sp) `(aref ,sp 3))
-
-(defun notmuch-sexp-read (sp)
+(cl-defmethod notmuch-sexp-read ((sp notmuch-sexp-parser))
   "Consume and return the value at point in the current buffer.
 
-Returns 'retry if there is insufficient input to parse a complete
-value (though it may still move point over whitespace).  If the
-parser is currently inside a list and the next token ends the
-list, this moves point just past the terminator and returns 'end.
-Otherwise, this moves point to just past the end of the value and
-returns the value."
+Returns `retry' if there is insufficient input to parse a
+complete value (though it may still move point over whitespace).
+If the parser is currently inside a list and the next token ends
+the list, this moves point just past the terminator and returns
+`end'.  Otherwise, this moves point to just past the end of the
+value and returns the value."
   (skip-chars-forward " \n\r\t")
-  (cond ((eobp) 'retry)
-	((= (char-after) ?\))
-	 ;; We've reached the end of a list
-	 (if (= (notmuch-sexp--depth sp) 0)
-	     ;; .. but we weren't in a list.  Let read signal the
-	     ;; error to be consistent with all other code paths.
-	     (read (current-buffer))
-	   ;; Go up a level and return an end token
-	   (cl-decf (notmuch-sexp--depth sp))
-	   (forward-char)
-	   'end))
-	((= (char-after) ?\()
-	 ;; We're at the beginning of a list.  If we haven't started
-	 ;; a partial parse yet, attempt to read the list in its
-	 ;; entirety.  If this fails, or we've started a partial
-	 ;; parse, extend the partial parse to figure out when we
-	 ;; have a complete list.
-	 (catch 'return
-	   (unless (notmuch-sexp--partial-state sp)
-	     (let ((start (point)))
-	       (condition-case nil
-		   (throw 'return (read (current-buffer)))
-		 (end-of-file (goto-char start)))))
-	   ;; Extend the partial parse
-	   (let (is-complete)
-	     (save-excursion
-	       (let* ((new-state (parse-partial-sexp
-				  (or (notmuch-sexp--partial-pos sp) (point))
-				  (point-max) 0 nil
-				  (notmuch-sexp--partial-state sp)))
-		      ;; A complete value is available if we've
-		      ;; reached depth 0.
-		      (depth (car new-state)))
-		 (cl-assert (>= depth 0))
-		 (if (= depth 0)
-		     ;; Reset partial parse state
-		     (setf (notmuch-sexp--partial-state sp) nil
-			   (notmuch-sexp--partial-pos sp) nil
-			   is-complete t)
-		   ;; Update partial parse state
-		   (setf (notmuch-sexp--partial-state sp) new-state
-			 (notmuch-sexp--partial-pos sp) (point-marker)))))
-	     (if is-complete
-		 (read (current-buffer))
-	       'retry))))
-	(t
-	 ;; Attempt to read a non-compound value
-	 (let ((start (point)))
-	   (condition-case nil
-	       (let ((val (read (current-buffer))))
-		 ;; We got what looks like a complete read, but if
-		 ;; we reached the end of the buffer in the process,
-		 ;; we may not actually have all of the input we
-		 ;; need (unless it's a string, which is delimited).
-		 (if (or (stringp val) (not (eobp)))
-		     val
-		   ;; We can't be sure the input was complete
-		   (goto-char start)
-		   'retry))
-	     (end-of-file
-	      (goto-char start)
-	      'retry))))))
+  (with-slots (depth pos state) sp
+    (cond ((eobp) 'retry)
+	  ((= (char-after) ?\))
+	   ;; We've reached the end of a list
+	   (if (= depth 0)
+	       ;; .. but we weren't in a list.  Let read signal the
+	       ;; error to be consistent with all other code paths.
+	       (read (current-buffer))
+	     ;; Go up a level and return an end token
+	     (cl-decf depth)
+	     (forward-char)
+	     'end))
+	  ((= (char-after) ?\()
+	   ;; We're at the beginning of a list.  If we haven't started
+	   ;; a partial parse yet, attempt to read the list in its
+	   ;; entirety.  If this fails, or we've started a partial
+	   ;; parse, extend the partial parse to figure out when we
+	   ;; have a complete list.
+	   (catch 'return
+	     (unless state
+	       (let ((start (point)))
+		 (condition-case nil
+		     (throw 'return (read (current-buffer)))
+		   (end-of-file (goto-char start)))))
+	     ;; Extend the partial parse
+	     (let (is-complete)
+	       (save-excursion
+		 (let* ((new-state (parse-partial-sexp
+				    (or pos (point))
+				    (point-max) 0 nil
+				    state))
+			;; A complete value is available if we've
+			;; reached depth 0.
+			(new-depth (car new-state)))
+		   (cl-assert (>= new-depth 0))
+		   (cond ((= new-depth 0)
+			  ;; Reset partial parse state
+			  (setf state nil)
+			  (setf pos nil)
+			  (setf is-complete t))
+			 (t
+			  ;; Update partial parse state
+			  (setf state new-state)
+			  (setf pos (point-marker))))))
+	       (if is-complete
+		   (read (current-buffer))
+		 'retry))))
+	  (t
+	   ;; Attempt to read a non-compound value
+	   (let ((start (point)))
+	     (condition-case nil
+		 (let ((val (read (current-buffer))))
+		   ;; We got what looks like a complete read, but if
+		   ;; we reached the end of the buffer in the process,
+		   ;; we may not actually have all of the input we
+		   ;; need (unless it's a string, which is delimited).
+		   (if (or (stringp val) (not (eobp)))
+		       val
+		     ;; We can't be sure the input was complete
+		     (goto-char start)
+		     'retry))
+	       (end-of-file
+		(goto-char start)
+		'retry)))))))
 
-(defun notmuch-sexp-begin-list (sp)
+(cl-defmethod notmuch-sexp-read ((sp notmuch-sexp-parser))
   "Parse the beginning of a list value and enter the list.
 
-Returns 'retry if there is insufficient input to parse the
+Returns `retry' if there is insufficient input to parse the
 beginning of the list.  If this is able to parse the beginning of
 a list, it moves point past the token that opens the list and
 returns t.  Later calls to `notmuch-sexp-read' will return the
@@ -135,19 +132,19 @@ beginning of a list, throw invalid-read-syntax."
   (cond ((eobp) 'retry)
 	((= (char-after) ?\()
 	 (forward-char)
-	 (cl-incf (notmuch-sexp--depth sp))
+	 (cl-incf (oref sp depth))
 	 t)
 	(t
 	 ;; Skip over the bad character like `read' does
 	 (forward-char)
 	 (signal 'invalid-read-syntax (list (string (char-before)))))))
 
-(defvar notmuch-sexp--parser nil
-  "The buffer-local notmuch-sexp-parser instance.
+(defvar-local notmuch-sexp--parser nil
+  "The buffer-local `notmuch-sexp-parser' instance.
 
 Used by `notmuch-sexp-parse-partial-list'.")
 
-(defvar notmuch-sexp--state nil
+(defvar-local notmuch-sexp--state nil
   "The buffer-local `notmuch-sexp-parse-partial-list' state.")
 
 (defun notmuch-sexp-parse-partial-list (result-function result-buffer)
@@ -160,9 +157,9 @@ be called whenever the input buffer has been extended with
 additional data.  The caller just needs to ensure it does not
 move point in the input buffer."
   ;; Set up the initial state
-  (unless (local-variable-p 'notmuch-sexp--parser)
-    (setq-local notmuch-sexp--parser (notmuch-sexp-create-parser))
-    (setq-local notmuch-sexp--state 'begin))
+  (unless notmuch-sexp--parser
+    (setq notmuch-sexp--parser (notmuch-sexp-parser))
+    (setq notmuch-sexp--state 'begin))
   (let (done)
     (while (not done)
       (cl-case notmuch-sexp--state
