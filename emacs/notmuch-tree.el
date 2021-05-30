@@ -566,13 +566,6 @@ NOT change the database."
       (ignore-errors
 	(delete-window notmuch-tree-message-window)))))
 
-(defun notmuch-tree-command-hook ()
-  (when (eq major-mode 'notmuch-tree-mode)
-    ;; We just run the notmuch-show-command-hook on the message pane.
-    (when (buffer-live-p notmuch-tree-message-buffer)
-      (with-current-buffer notmuch-tree-message-buffer
-	(notmuch-show-command-hook)))))
-
 (defun notmuch-tree-show-message-in ()
   "Show the current message (in split-pane)."
   (interactive)
@@ -967,7 +960,9 @@ unchanged ADDRESS if parsing fails."
       (forward-line -1)
       (when notmuch-tree-open-target
 	(notmuch-tree-show-message-in)
-	(notmuch-tree-command-hook)))))
+	(when notmuch-show-mark-read-tags
+	  (with-current-buffer notmuch-tree-message-buffer
+	    (notmuch-tree-tag-update-display notmuch-show-mark-read-tags)))))))
 
 (defun notmuch-tree-insert-tree (tree depth tree-status first last)
   "Insert the message tree TREE at depth DEPTH in the current thread.
@@ -1086,7 +1081,6 @@ This is is a helper function for notmuch-tree. The arguments are
 the same as for the function notmuch-tree."
   (interactive)
   (notmuch-tree-mode)
-  (add-hook 'post-command-hook #'notmuch-tree-command-hook t t)
   (setq notmuch-search-oldest-first oldest-first)
   (setq notmuch-tree-unthreaded unthreaded)
   (setq notmuch-tree-basic-query basic-query)

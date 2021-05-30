@@ -1283,7 +1283,6 @@ matched."
 	  (if elide-toggle
 	      (not notmuch-show-only-matching-messages)
 	    notmuch-show-only-matching-messages))
-    (add-hook 'post-command-hook #'notmuch-show-command-hook nil t)
     (jit-lock-register #'notmuch-show-buttonise-links)
     (notmuch-tag-clear-cache)
     (let ((inhibit-read-only t))
@@ -1773,22 +1772,6 @@ user decision and we should not override it."
 
 (defvar notmuch-show--seen-has-errored nil)
 (make-variable-buffer-local 'notmuch-show--seen-has-errored)
-
-(defun notmuch-show-command-hook ()
-  (when (eq major-mode 'notmuch-show-mode)
-    ;; We need to redisplay to get window-start and window-end correct.
-    (redisplay)
-    (save-excursion
-      (condition-case nil
-	  (funcall notmuch-show-mark-read-function (window-start) (window-end))
-	((debug error)
-	 (unless notmuch-show--seen-has-errored
-	   (setq notmuch-show--seen-has-errored t)
-	   (setq header-line-format
-		 (concat header-line-format
-			 (propertize
-			  "  [some mark read tag changes may have failed]"
-			  'face font-lock-warning-face)))))))))
 
 (defun notmuch-show-filter-thread (query)
   "Filter or LIMIT the current thread based on a new query string.
